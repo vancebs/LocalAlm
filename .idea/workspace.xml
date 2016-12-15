@@ -1,12 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="8d906a99-85e9-490d-a819-ef3f775f3545" name="Default" comment="">
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/src/im/ImHandler.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/LocalDbManager.py" afterPath="$PROJECT_DIR$/src/LocalDbManager.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/cfg/ProjectConfig.py" afterPath="$PROJECT_DIR$/src/cfg/ProjectConfig.py" />
-    </list>
+    <list default="true" id="8d906a99-85e9-490d-a819-ef3f775f3545" name="Default" comment="" />
     <ignored path="LocalAlm.iws" />
     <ignored path=".idea/workspace.xml" />
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -473,7 +468,7 @@
     <servers />
   </component>
   <component name="ToolWindowManager">
-    <frame x="-9" y="-9" width="1938" height="1048" extended-state="6" />
+    <frame x="-9" y="-9" width="1938" height="1048" extended-state="7" />
     <editor active="true" />
     <layout>
       <window_info id="Project" active="false" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.19228737" sideWeight="0.5" order="0" side_tool="false" content_ui="combo" />
