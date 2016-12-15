@@ -16,50 +16,55 @@ class ProjectConfig(object):
     def _open_database(self):
         return Database.open_project_database(self._mProject)
 
-    def get_config(self, key, default):
+    @staticmethod
+    def get_config(db, key, default):
         result = default
 
-        with self._open_database() as db:
-            # read from db
-            c = db.cursor()
-            c.execute('SELECT '
-                        + Database.COL_CONFIG_VALUE
-                      + ' FROM '
-                        + Database.TABLE_CONFIG
-                      + ' WHERE ' + Database.COL_CONFIG_NAME + '=?', (key,))
-            rows = c.fetchall()
-            if len(rows) > 0:
-                result = rows[0][0]
+        # read from db
+        c = db.cursor()
+        c.execute('SELECT '
+                    + Database.COL_CONFIG_VALUE
+                  + ' FROM '
+                    + Database.TABLE_CONFIG
+                  + ' WHERE ' + Database.COL_CONFIG_NAME + '=?', (key,))
+        rows = c.fetchall()
+        if len(rows) > 0:
+            result = rows[0][0]
 
-            # close cursor
-            c.close()
+        # close cursor
+        c.close()
 
         return result
 
-    def set_config(self, key, value):
-        with self._open_database() as db:
-            db.execute('REPLACE INTO '
-                        + Database.TABLE_CONFIG + ' ('
-                        + Database.COL_CONFIG_NAME
-                        + ',' + Database.COL_CONFIG_VALUE
-                        + ') VALUES (?,?)', (key, value))
-            db.commit()
+    @staticmethod
+    def set_config(db, key, value):
+        db.execute('REPLACE INTO '
+                    + Database.TABLE_CONFIG + ' ('
+                    + Database.COL_CONFIG_NAME
+                    + ',' + Database.COL_CONFIG_VALUE
+                    + ') VALUES (?,?)', (key, value))
+        db.commit()
 
-    def get_bugs_last_update_time(self, default):
-        return Util.format_time(self.get_config(ProjectConfig.CFG_KEY_BUG_LAST_UPDATE_TIME, default))
+    @staticmethod
+    def get_bugs_last_update_time(db, default):
+        return Util.format_time(ProjectConfig.get_config(db, ProjectConfig.CFG_KEY_BUG_LAST_UPDATE_TIME, default))
 
-    def set_bugs_last_update_time(self, value):
-        self.set_config(ProjectConfig.CFG_KEY_BUG_LAST_UPDATE_TIME, Util.format_time_to_str(value))
+    @staticmethod
+    def set_bugs_last_update_time(db, value):
+        ProjectConfig.set_config(db, ProjectConfig.CFG_KEY_BUG_LAST_UPDATE_TIME, Util.format_time_to_str(value))
 
-    def get_fields_last_update_time(self, default):
-        return Util.format_time(self.get_config(ProjectConfig.CFG_KEY_FIELDS_LAST_UPDATE_TIME, default))
+    @staticmethod
+    def get_fields_last_update_time(db, default):
+        return Util.format_time(ProjectConfig.get_config(db, ProjectConfig.CFG_KEY_FIELDS_LAST_UPDATE_TIME, default))
 
-    def set_fields_last_update_time(self, value):
-        self.set_config(ProjectConfig.CFG_KEY_FIELDS_LAST_UPDATE_TIME, Util.format_time_to_str(value))
+    @staticmethod
+    def set_fields_last_update_time(db, value):
+        ProjectConfig.set_config(db, ProjectConfig.CFG_KEY_FIELDS_LAST_UPDATE_TIME, Util.format_time_to_str(value))
 
-    def get_users_last_update_time(self, default):
-        return Util.format_time(self.get_config(ProjectConfig.CFG_KEY_USERS_LAST_UPDATE_TIME, default))
+    @staticmethod
+    def get_users_last_update_time(db, default):
+        return Util.format_time(ProjectConfig.get_config(db, ProjectConfig.CFG_KEY_USERS_LAST_UPDATE_TIME, default))
 
-    def set_users_last_update_time(self, value):
-        self.set_config(ProjectConfig.CFG_KEY_USERS_LAST_UPDATE_TIME, Util.format_time_to_str(value))
-
+    @staticmethod
+    def set_users_last_update_time(db, value):
+        ProjectConfig.set_config(db, ProjectConfig.CFG_KEY_USERS_LAST_UPDATE_TIME, Util.format_time_to_str(value))

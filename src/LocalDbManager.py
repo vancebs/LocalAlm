@@ -4,6 +4,7 @@ from db.Database import Database
 from Util import Util
 import re
 from cfg.ProjectConfig import ProjectConfig
+from src.im.ImHandler import ImHandler
 
 
 class LocalDbManager(object):
@@ -14,7 +15,7 @@ class LocalDbManager(object):
     _REG_MATCH_FIELD_NAME = re.compile('([\s\S]+?):([\s\S]*)')
     _SYNC_FREQUENCY = 24 * 60 * 60 # 1 day
 
-    _SQL_INSERT_BUGS = (
+    _SQL_REPLACE_BUGS = (
         'REPLACE INTO '
             + Database.TABLE_BUGS + '('
                 + Database.COL_BUGS_BUG_ID
@@ -42,7 +43,7 @@ class LocalDbManager(object):
         + Database.COL_BUGS_BUG_ID + "=?"
     )
 
-    _SQL_INSERT_RAW = (
+    _SQL_REPLACE_RAW = (
         'REPLACE INTO '
         + Database.TABLE_RAW + '('
         + Database.COL_RAW_BUG_ID
@@ -139,7 +140,7 @@ class LocalDbManager(object):
         + Database.COL_RAW_BUG_ID + "=?"
     )
 
-    _SQL_INSERT_FIELDS = (
+    _SQL_REPLACE_FIELDS = (
         'REPLACE INTO '
         + Database.TABLE_FIELDS + '('
         + Database.COL_FIELDS_NAME
@@ -157,7 +158,7 @@ class LocalDbManager(object):
         + Database.TABLE_FIELDS
     )
 
-    _SQL_INSERT_USERS = (
+    _SQL_REPLACE_USERS = (
         'REPLACE INTO '
         + Database.TABLE_USERS + '('
         + Database.COL_USERS_NAME
@@ -176,14 +177,12 @@ class LocalDbManager(object):
     )
 
     _mProject = None
-    _mConfig = None
     _mDictFieldDisplayName2Type = None
     _mDictFieldDisplayName2Name = None
     _mDictUsersAssignedUserName2Email = None
 
     def __init__(self, project):
         self._mProject = project
-        self._mConfig = ProjectConfig(self._mProject)
 
     def sync(self, total_fetch=False):
         self.sync_fields()
@@ -201,45 +200,33 @@ class LocalDbManager(object):
         query_time = Util.current_time()
 
         # get sync from time
+        sync_from_time = None
         if total_fetch:
             sync_from_time = LocalDbManager._EARLY_FROM_TIME
         else:
-            sync_from_time = self._mConfig.get_bugs_last_update_time(LocalDbManager._EARLY_FROM_TIME)
+            with self._open_database() as db:
+                sync_from_time = ProjectConfig.get_bugs_last_update_time(db, LocalDbManager._EARLY_FROM_TIME)
 
         print ('fetch bug from last modified time [%s]' % Util.format_time_to_str(sync_from_time))
 
-        # generate parameters
-        params = ImParam.multi(
-            ImParam.fields('ID', 'Modified Date'),
-            ImParam.sort_by_field('ID', False),
-            ImParam.field_delim(LocalDbManager._DELIM),
-            ImParam.define(
-                ImParam.define_and(
-                    ImParam.define_not(ImParam.define_versioned()),
-                    ImParam.define_field('Project', self._mProject),
-                    ImParam.define_field('Type', 'Defect', 'Stability Defect', 'General FR'),  # TODO config later
-                    ImParam.define_field_time_from('Modified Date', Util.format_time_to_str(sync_from_time))
-                )
-            )
-        )
+        with self._open_database() as db:
+            # query from im
+            (result, count) = ImHandler.sync_bugs(
+                self._mProject, sync_from_time,
+                lambda bug_id, modified_time: db.execute(
+                    self._SQL_REPLACE_BUGS,
+                    (bug_id, Util.format_time_to_long(modified_time), 1)))
 
-        cmd = 'im issues %s' % params
-        (result, count) = self._query(cmd, self.sync_bugs_on_line)
-        if result:
-            print ('[%d] bugs updated.' % count)
-            last_modified_time = Util.time_sub(query_time, LocalDbManager._FROM_TIME_SHIFT)
-            self._mConfig.set_bugs_last_update_time(last_modified_time)
-        else:
-            print ('fetch bugs failed')
+            # check result
+            if result:
+                print ('[%d] bugs updated.' % count)
+                last_modified_time = Util.time_sub(query_time, LocalDbManager._FROM_TIME_SHIFT)
+                ProjectConfig.set_bugs_last_update_time(db, last_modified_time)
+            else:
+                print ('fetch bugs failed')
 
         print ('done')
         return result
-
-    def sync_bugs_on_line(self, db, line):
-        parts = line.split(LocalDbManager._DELIM)
-
-        # insert into db
-        db.execute(self._SQL_INSERT_BUGS, (parts[0], Util.format_time_to_long(parts[1]), 1))
 
     def sync_raw(self):
         print ('sync raw ...')
@@ -446,7 +433,7 @@ class LocalDbManager(object):
             db.execute(self._SQL_UPDATE_BUGS_DIRTY, (0, alm_id))
 
             # insert or update bug detail
-            db.execute(self._SQL_INSERT_RAW, (alm_id, modified_time, buffer(Util.str_to_utf8(out)), 1))
+            db.execute(self._SQL_REPLACE_RAW, (alm_id, modified_time, buffer(Util.str_to_utf8(out)), 1))
         else:
             print('failed to fetch bug %s' % alm_id)
             return False
@@ -461,32 +448,32 @@ class LocalDbManager(object):
         if not force_update:
             # check frequency
             current_time = Util.current_time()
-            last_updated_time = self._mConfig.get_fields_last_update_time(LocalDbManager._EARLY_FROM_TIME)
-            delta_time = Util.time_sub(current_time, last_updated_time)
-            if Util.format_time_to_long(delta_time) < LocalDbManager._SYNC_FREQUENCY:
-                # unnecessary to sync if duration is less than frequency
-                print ('canceled. unnecessary to sync')
-                return
+            with self._open_database() as db:
+                last_updated_time = ProjectConfig.get_fields_last_update_time(db, LocalDbManager._EARLY_FROM_TIME)
+                delta_time = Util.time_sub(current_time, last_updated_time)
+                if Util.format_time_to_long(delta_time) < LocalDbManager._SYNC_FREQUENCY:
+                    # unnecessary to sync if duration is less than frequency
+                    print ('canceled. unnecessary to sync.')
+                    return
 
         # sync
-        cmd = 'im fields --fields name,displayName,type --fieldsDelim="' + LocalDbManager._DELIM + '"'
-        (result, count) = self._query(cmd, self._sync_fields_on_line)
-        if result:
-            print ('[%d] fields updated.' % count)
-        else:
-            print ('fetch fields failed')
+        with self._open_database() as db:
+            (result, count) = ImHandler.sync_fields(
+                lambda name, display_name, field_type: db.execute(
+                    self._SQL_REPLACE_FIELDS,
+                    (name, display_name, field_type)))
 
-        # update last sync time
-        self._mConfig.get_fields_last_update_time(current_time)
+            # check result
+            if result:
+                print ('[%d] fields updated.' % count)
+
+                # update last sync time
+                ProjectConfig.set_fields_last_update_time(db, current_time)
+            else:
+                print ('fetch fields failed')
 
         print ('done')
         return result
-
-    def _sync_fields_on_line(self, db, line):
-        parts = line.split(LocalDbManager._DELIM)
-
-        # insert into db
-        db.execute(self._SQL_INSERT_FIELDS, (parts[0], parts[1], parts[2]))
 
     def sync_users(self, force_update=False):
         print ('sync users ...')
@@ -496,71 +483,35 @@ class LocalDbManager(object):
         if not force_update:
             # check frequency
             current_time = Util.current_time()
-            last_updated_time = self._mConfig.get_users_last_update_time(LocalDbManager._EARLY_FROM_TIME)
-            delta_time = Util.time_sub(current_time, last_updated_time)
-            if Util.format_time_to_long(delta_time) < LocalDbManager._SYNC_FREQUENCY:
-                # unnecessary to sync if duration is less than frequency
-                print ('canceled. unnecessary to sync')
-                return
+            with self._open_database() as db:
+                last_updated_time = ProjectConfig.get_users_last_update_time(db, LocalDbManager._EARLY_FROM_TIME)
+                delta_time = Util.time_sub(current_time, last_updated_time)
+                if Util.format_time_to_long(delta_time) < LocalDbManager._SYNC_FREQUENCY:
+                    # unnecessary to sync if duration is less than frequency
+                    print ('canceled. unnecessary to sync.')
+                    return
 
         # sync
-        cmd = 'im users --fields=name,email,fullname --fieldsDelim="' + LocalDbManager._DELIM + '"'
-        (result, count) = self._query(cmd, self._sync_users_on_line)
-        if result:
-            print ('[%d] users updated.' % count)
-        else:
-            print ('fetch users failed')
+        with self._open_database() as db:
+            (result, count) = ImHandler.sync_users(
+                lambda name, email, fullname, assigned_user_name: db.execute(
+                    self._SQL_REPLACE_USERS,
+                    (name, email, fullname, assigned_user_name)))
 
-        # update last sync time
-        self._mConfig.set_users_last_update_time(current_time)
+            # check result
+            if result:
+                print ('[%d] users updated.' % count)
+
+                # update last sync time
+                ProjectConfig.set_users_last_update_time(db, current_time)
+            else:
+                print ('fetch users failed')
 
         print ('done')
         return result
 
-    def _sync_users_on_line(self, db, line):
-        # print ('_sync_user_on_line %s'%line)
-        parts = line.split(LocalDbManager._DELIM)
-
-        # insert into db
-        name = parts[0]
-        email = parts[1]
-        fullname = parts[2]
-        db.execute(self._SQL_INSERT_USERS,
-                   (name, email, fullname, LocalDbManager._get_assigned_user_name(name, fullname)))
-
     def _open_database(self):
         return Database.open_project_database(self._mProject)
-
-    @staticmethod
-    def _get_assigned_user_name(name, fullname):
-        return '%s (%s)' % (fullname, name)
-
-    def _query(self, im_cmd, on_line):
-        count = 0
-        (code, out, err) = Im.execute(im_cmd)
-        if code == 0:
-            # open db
-            with self._open_database() as db:
-                # insert lines
-                lines = Util.str_to_utf8(out).split("\n")
-                for line in lines:
-                    count += 1
-                    line = line.strip()
-                    if len(line) <= 0:
-                        continue
-
-                    # on line callback
-                    on_line(db, line)
-
-                    # print ('%d item queried' % count)
-
-                # close db
-                db.commit()
-        else:
-            print ('fetch users failed')
-            return False, count
-
-        return True, count
 
     def _get_fields_dict(self):
         with self._open_database() as db:
@@ -597,16 +548,3 @@ class LocalDbManager(object):
 
         return assigned_email
 
-    def _get_sync_from_time(self):
-        with self._open_database() as db:
-            c = db.cursor()
-            c.execute('SELECT MAX(' + Database.COL_BUGS_MODIFIED_TIME + ') FROM ' + Database.TABLE_BUGS)
-            max_time = c.fetchone()
-            c.close()
-
-        if max_time is None or max_time[0] is None:
-            sync_from_time = Util.format_time_to_str(LocalDbManager._EARLY_FROM_TIME)
-        else:
-            sync_from_time = Util.format_time_to_str(long(max_time[0]) - LocalDbManager._FROM_TIME_SHIFT)
-
-        return sync_from_time
